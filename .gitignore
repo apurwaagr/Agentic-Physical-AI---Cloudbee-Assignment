@@ -2,10 +2,15 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyc
 .pytest_cache/
 
 # Virtual environment
 venv/
+
+# Environment variables (DO NOT COMMIT)
+.env
+.env.local
 
 # Generated outputs
 part2/configs/

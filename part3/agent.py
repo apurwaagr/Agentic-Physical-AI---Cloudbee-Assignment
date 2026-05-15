@@ -17,34 +17,56 @@ import json
 import os
 import urllib.request
 import urllib.error
+from pathlib import Path
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    env_file = Path(__file__).parent.parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+except ImportError:
+    pass  # python-dotenv not installed, will use os.getenv
+
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
 # ── LLM client setup ──────────────────────────────────────────────────────────
-# Uses local Ollama if available (no API key required).
-# Falls back to a deterministic built-in planner if Ollama is not running,
+# Uses Google Gemini API if available with valid API key from environment.
+# Falls back to a deterministic built-in planner if API is not available,
 # so the agent always produces a valid execution_log.json.
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "llama3"   # change to any locally available model
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+if GEMINI_AVAILABLE and GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(GEMINI_MODEL)
 
 
-def _call_ollama(prompt: str) -> str:
-    """Send a prompt to local Ollama and return the response text."""
-    payload = json.dumps({"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}).encode()
-    req = urllib.request.Request(OLLAMA_URL, data=payload,
-                                 headers={"Content-Type": "application/json"})
+def _call_gemini(prompt: str) -> str:
+    """Send a prompt to Google Gemini and return the response text."""
+    if not GEMINI_AVAILABLE or not GEMINI_API_KEY:
+        return None
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())["response"].strip()
-    except Exception:
+        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(
+            max_output_tokens=500, temperature=0.7
+        ))
+        return response.text.strip()
+    except Exception as e:
+        print(f"[GEMINI ERROR] {e}")
         return None
 
 
 def call_llm(prompt: str) -> str:
     """
-    Call the LLM.  Tries Ollama first; falls back to a rule-based response
-    so the script always completes even without an API key or running model.
+    Call the LLM.  Tries Google Gemini first; falls back to a rule-based response
+    so the script always completes even without a valid API key or internet.
     """
-    result = _call_ollama(prompt)
+    result = _call_gemini(prompt)
     if result:
         return result
     # Deterministic fallback — returns the same structured plan the agent needs

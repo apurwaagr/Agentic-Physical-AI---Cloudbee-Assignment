@@ -24,5 +24,6 @@ lerobot>=0.3.0
 # ── Task 3A: LLM API — uncomment your chosen provider ────────────────────────
 # anthropic==0.28.0
 # openai==1.30.0
-# google-generativeai==0.7.0
+google-generativeai>=0.3.0
+python-dotenv>=1.0.0
 # (For local Ollama, no extra package is required — uses urllib from stdlib)

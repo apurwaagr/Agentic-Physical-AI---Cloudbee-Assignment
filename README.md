@@ -19,6 +19,23 @@ pip install numpy==1.26.4 matplotlib==3.9.0 pytest==8.2.0 \
 
 No GPU required. All tasks run on CPU.
 
+### Part 3A: Configure LLM API (Optional)
+
+To use the real LLM agent (Google Gemini), create a `.env` file in the project root:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and add your API key
+# GEMINI_API_KEY=your_api_key_here
+# GEMINI_MODEL=gemini-2.5-flash
+```
+
+Get a free Gemini API key at [aistudio.google.com/app/apikeys](https://aistudio.google.com/app/apikeys).
+
+**Note:** The `.env` file is in `.gitignore` — it won't be committed to GitHub. When you clone this repo, create your own `.env` locally.
+
 ---
 
 ## Running Each Task

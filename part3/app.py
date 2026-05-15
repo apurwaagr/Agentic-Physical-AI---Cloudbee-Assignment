@@ -108,6 +108,29 @@ def generate_scenes(request: GenerateRequest):
     )
 
 
+@app.get("/")
+def root():
+    """Root endpoint with API documentation."""
+    return {
+        "title": "Scene Generator API",
+        "version": "1.0.0",
+        "description": "Generate robotic task scene configurations using Halton or random sampling",
+        "endpoints": {
+            "POST /generate": {
+                "description": "Generate scene configurations",
+                "request_body": {
+                    "task": "str (task description, e.g., 'pick-and-place')",
+                    "n": "int (number of scenes to generate, 1-10000)",
+                    "strategy": "str ('random' or 'halton')"
+                },
+                "example": "curl -X POST http://localhost:8000/generate -H 'Content-Type: application/json' -d '{\"task\":\"pick-and-place\",\"n\":10,\"strategy\":\"halton\"}'"
+            },
+            "GET /health": "Health check endpoint"
+        },
+        "note": "This API requires POST requests. Use curl or a REST client to test."
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
