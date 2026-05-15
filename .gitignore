@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environment
+venv/
+
+# Generated outputs
+part2/configs/
+part2/plots/
+part3/execution_log.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker daemon log
+dockerd*.log
