@@ -11,6 +11,10 @@
 import numpy as np
 import json
 import pathlib
+import os
+
+
+os.environ.setdefault("MPLCONFIGDIR", str(pathlib.Path(".matplotlib").resolve()))
 
 
 PARAM_SPACE = {
@@ -78,6 +82,8 @@ def generate(n=100, strategy="random", out_dir="configs/"):
 
 
 if __name__ == "__main__":
+    import matplotlib
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     pathlib.Path("plots").mkdir(exist_ok=True)

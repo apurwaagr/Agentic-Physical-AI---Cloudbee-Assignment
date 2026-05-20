@@ -14,7 +14,7 @@
 #       Install:  pip install lerobot
 #
 #   Option B — ACT  (well-documented, standard lerobot example)
-#       Model:    lerobot/act_pusht_image
+#       Model:    vvrs/act-pusht by default (override with ACT_MODEL_ID)
 #       Dataset:  lerobot/pusht
 #       Install:  pip install lerobot
 #
@@ -24,38 +24,85 @@
 #       Use this ONLY if lerobot fails to install.
 # ─────────────────────────────────────────────────────────────────────────────
 
+import os
 import numpy as np
 import torch
+import pathlib
+
+os.environ.setdefault("MPLCONFIGDIR", str(pathlib.Path(".matplotlib").resolve()))
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import pathlib
 
 # ── CONFIG — set before running ────────────────────────────────────────────────
-MODEL_CHOICE = "lightweight"   # "smolvla" | "act" | "lightweight"
-T_EVAL       = 50              # timesteps to evaluate (first T_EVAL of episode 0)
+MODEL_CHOICE = os.getenv("MODEL_CHOICE", "act")   # "smolvla" | "act" | "lightweight"
+T_EVAL       = int(os.getenv("T_EVAL", "50"))      # first T_EVAL timesteps of episode 0
+MODEL_IDS = {
+    "smolvla": "lerobot/smolvla_base",
+    # The original scaffold referenced `lerobot/act_pusht_image`, but that
+    # repo is not public. `vvrs/act-pusht` is a public ACT policy trained on PushT.
+    "act": os.getenv("ACT_MODEL_ID", "vvrs/act-pusht"),
+}
+DATASET_ID = os.getenv("DATASET_ID", "lerobot/pusht")
+VIDEO_BACKEND = os.getenv("VIDEO_BACKEND", "pyav")
+
+
+def _to_numpy(value):
+    """Convert tensors or tensor-like values returned by LeRobot to numpy."""
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy()
+    if hasattr(value, "numpy"):
+        return value.numpy()
+    return np.asarray(value)
+
+
+def _load_lerobot_policy(model_choice):
+    """Load a real LeRobot policy and PushT dataset for offline inference."""
+    try:
+        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    except ImportError as exc:
+        raise RuntimeError(
+            "lerobot is not installed or its dataset API changed. Install it with `pip install lerobot`, "
+            "or run `MODEL_CHOICE=lightweight python eval_2b.py` only as a fallback."
+        ) from exc
+
+    if model_choice == "smolvla":
+        from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+        policy_cls = SmolVLAPolicy
+    elif model_choice == "act":
+        from lerobot.policies.act.modeling_act import ACTPolicy
+        policy_cls = ACTPolicy
+    else:
+        raise ValueError(f"Unsupported LeRobot policy: {model_choice!r}")
+
+    model_id = MODEL_IDS[model_choice]
+    print(f"Loading policy: {model_id}")
+    policy = policy_cls.from_pretrained(model_id)
+    policy.eval()
+
+    print(f"Loading real dataset: {DATASET_ID}  (video_backend={VIDEO_BACKEND})")
+    dataset = LeRobotDataset(DATASET_ID, video_backend=VIDEO_BACKEND)
+    return policy, dataset
+
+
+def _batch_lerobot_frame(frame, device):
+    """Add a batch dimension to tensor observations before policy inference."""
+    batch = {}
+    for key, value in frame.items():
+        if isinstance(value, torch.Tensor):
+            batch[key] = value.unsqueeze(0).to(device)
+        else:
+            batch[key] = value
+    return batch
 
 # ── 1. Load model and dataset ─────────────────────────────────────────────────
 
 if MODEL_CHOICE == "smolvla":
-    # TODO: load SmolVLA from HuggingFace
-    # from lerobot.common.policies.smolvla.modeling_smolvla import SmolVLAPolicy
-    # policy  = SmolVLAPolicy.from_pretrained("lerobot/smolvla_base")
-    # policy.eval()
-    # from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-    # dataset = LeRobotDataset("lerobot/pusht")
-    policy  = None   # TODO
-    dataset = None   # TODO
+    policy, dataset = _load_lerobot_policy("smolvla")
 
 elif MODEL_CHOICE == "act":
-    # TODO: load ACT from HuggingFace
-    # from lerobot.common.policies.act.modeling_act import ACTPolicy
-    # policy  = ACTPolicy.from_pretrained("lerobot/act_pusht_image")
-    # policy.eval()
-    # from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-    # dataset = LeRobotDataset("lerobot/pusht")
-    policy  = None   # TODO
-    dataset = None   # TODO
+    policy, dataset = _load_lerobot_policy("act")
 
 elif MODEL_CHOICE == "lightweight":
     # Fallback: synthetic policy + provided episode — no download needed
@@ -89,12 +136,8 @@ else:
 assert policy is not None, "Load a model before running"
 
 # ── 2. Load episode data ──────────────────────────────────────────────────────
-# TODO: load the first T_EVAL timesteps from episode 0.
-#
 # For SmolVLA / ACT (lerobot dataset):
-#   episode_start = dataset.episode_data_index["from"][0].item()
-#   frames = [dataset[episode_start + t] for t in range(T_EVAL)]
-#   gt_actions = np.stack([f["action"].numpy() for f in frames])
+#   use the first T_EVAL rows from episode_index == 0.
 #
 # For LightweightPolicy:
 #   episode  = np.load("data/sample_episode.npz", allow_pickle=True)
@@ -102,7 +145,7 @@ assert policy is not None, "Load a model before running"
 #   gt_actions   = episode["actions"][:T_EVAL]        # (T_EVAL, 2)
 #
 observations = None   # not used for lerobot; populated below for lightweight
-gt_actions   = None   # TODO: numpy array (T_EVAL, act_dim)
+gt_actions   = None   # numpy array (T_EVAL, act_dim)
 
 if MODEL_CHOICE == "lightweight":
     episode      = np.load("data/sample_episode.npz", allow_pickle=True)
@@ -110,9 +153,12 @@ if MODEL_CHOICE == "lightweight":
     gt_actions   = episode["actions"][:T_EVAL]        # (T_EVAL, 2)
 else:
     # SmolVLA / ACT lerobot path
-    episode_start = dataset.episode_data_index["from"][0].item()
-    frames        = [dataset[episode_start + t] for t in range(T_EVAL)]
-    gt_actions    = np.stack([f["action"].numpy() for f in frames])
+    episode_indices = np.array([_to_numpy(x).item() for x in dataset.hf_dataset["episode_index"]])
+    episode_start   = int(np.flatnonzero(episode_indices == 0)[0])
+    episode_end     = int(np.flatnonzero(episode_indices == 0)[-1]) + 1
+    T_EVAL          = min(T_EVAL, episode_end - episode_start)
+    frames          = [dataset[episode_start + t] for t in range(T_EVAL)]
+    gt_actions      = np.stack([_to_numpy(f["action"]) for f in frames])
 
 # ── 3. Run inference ──────────────────────────────────────────────────────────
 if MODEL_CHOICE == "lightweight":
@@ -121,11 +167,12 @@ else:
     # SmolVLA / ACT
     if hasattr(policy, "reset"):
         policy.reset()
+    device = next(policy.parameters()).device
     pred_actions = []
     for t in range(T_EVAL):
         with torch.no_grad():
-            pred = policy.select_action(frames[t])
-        pred_actions.append(pred.numpy())
+            pred = policy.select_action(_batch_lerobot_frame(frames[t], device))
+        pred_actions.append(_to_numpy(pred).squeeze(0))
     pred_actions = np.array(pred_actions)
 
 # ── 4. Compute L1 error per timestep ─────────────────────────────────────────
@@ -156,14 +203,4 @@ plt.tight_layout()
 plt.savefig("plots/action_error.png", dpi=150)
 print("Saved: plots/action_error.png")
 
-# ── 6. Written analysis (goes in foundation_model_report.md) ──────────────────
-# TODO: Write 2-3 sentences in foundation_model_report.md answering:
-#
-#   "WHY is the error highest at t={peak_t}?"
-#
-#   Do NOT say "the model was uncertain."
-#   Explain the specific mechanism — for example:
-#   - Action chunking: ACT predicts K-step chunks; error compounds within a chunk
-#   - Trajectory transitions: high curvature = sudden velocity change the model didn't see
-#   - Distribution shift: if using LightweightPolicy, frames beyond t=47 were never in training
-#   - Contact / object interaction: error spikes when the robot makes or breaks contact
+# See foundation_model_report.md for the peak-error analysis.

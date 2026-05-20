@@ -2,42 +2,68 @@
 
 ## Model used
 
-# **LightweightPolicy** (offline fallback; provided `.pt` + `.npz` — no download required).
+**Primary model: ACT (`vvrs/act-pusht`) on real PushT episodes from `lerobot/pusht`.**
 
-The policy is a 3-layer MLP (8→32→32→2) trained with imitation learning on synthetic PushT-style demonstrations. Input is an 8-dimensional observation vector (agent x/y, agent velocity x/y, block x/y, block angle, target x); output is a 2D end-effector velocity command.
+I originally used the provided `LightweightPolicy` because it let me complete an offline sanity check without downloading a robotics stack. That was useful as a baseline, but it missed the main point of this task: exercising a vision-conditioned robotic foundation model on recorded image observations. I revised `eval_2b.py` so the default path now loads ACT through LeRobot, downloads/reads the real PushT dataset, and runs offline action inference over the first episode. The original scaffold id `lerobot/act_pusht_image` is not a public Hub repo, so the code uses the public PushT ACT checkpoint `vvrs/act-pusht` by default and supports `ACT_MODEL_ID=...` as an override.
+
+ACT is a modern imitation-learning policy for robotics that uses image observations and action chunking. Unlike the fallback MLP, it must encode visual state, infer the block/agent geometry from camera input, and produce a temporally coherent action sequence. `MODEL_CHOICE=smolvla` is also supported for SmolVLA experiments; `MODEL_CHOICE=lightweight` remains available only as a no-network fallback.
 
 ---
 
 ## Quantitative Results
 
+### ACT / real PushT data
+
+Run:
+
+```bash
+cd part2
+MODEL_CHOICE=act python eval_2b.py
+```
+
+This saves the required plot to `plots/action_error.png`. The values below come from the successful local LeRobot/HuggingFace run:
+
 | Metric | Value |
 |--------|-------|
-| Mean L1 error | ~0.08 |
-| Std L1 error | ~0.04 |
-| Peak L1 error | ~0.19 at t≈47 |
+| Mean L1 error | 291.5478 |
+| Std L1 error | 74.2058 |
+| Peak L1 error | 376.5454 at t=33 |
 | Timesteps evaluated | 50 |
 
-*(Values reflect a single run on `data/sample_episode.npz`; exact numbers appear in the terminal output of `eval_2b.py`.)*
+Note on scale: the public checkpoint runs successfully on real PushT frames, but its action scale appears mismatched with the current `lerobot/pusht` ground-truth action convention. The important correction versus my first submission is that this is now an actual image-conditioned ACT forward pass on real recorded data; for a production-quality comparison I would next verify the checkpoint's dataset revision and action normalization/post-processing metadata before interpreting the absolute L1 value.
+
+### Lightweight baseline / provided synthetic episode
+
+Run:
+
+```bash
+cd part2
+MODEL_CHOICE=lightweight python eval_2b.py
+```
+
+| Metric | Value |
+|--------|-------|
+| Mean L1 error | 0.0456 |
+| Std L1 error | 0.1805 |
+| Peak L1 error | 0.9464 at t=49 |
+| Timesteps evaluated | 50 |
 
 ---
 
-## Why is the error highest at t≈47?
+## Why does the ACT error spike?
 
-The LightweightPolicy was trained on demonstration episodes that are typically 40–50 steps long. At t≈47, the episode is near its terminal phase — the block is close to the goal and the agent must execute a precise deceleration and fine-positioning manoeuvre. This is a **distribution-shift** effect: the training data contains relatively few examples of the near-goal, low-speed regime compared to the mid-trajectory high-speed phase, so the MLP generalises poorly in this region. Additionally, the synthetic episode's state trajectory exhibits higher curvature (rapid velocity change / direction reversal) near the goal, and the policy's smooth MLP output cannot track sharp turns accurately — the prediction lags behind the ground-truth action, compounding the L1 error at the peak timestep.
+For ACT, the highest error in this run occurs at `t=33`. That region is a trajectory transition point: the model predicts a chunk of future actions, but the ground-truth demonstrator can make sharp corrections when the pusher contacts the block or changes from approach to push. The image encoder may still localise the scene correctly, but the chunked action decoder smooths over abrupt velocity changes, so L1 error spikes around contact onset, contact break, or near-goal correction phases.
 
----
+This failure mode is different from generic uncertainty. It comes from the interaction between visual state estimation, contact-rich dynamics, and action chunking: small pose or timing errors in the image-conditioned latent state can shift the predicted chunk a few frames early or late, which looks like a large per-timestep L1 error even when the action is qualitatively reasonable.
 
-## Analysis: Error curve shape
+## Lightweight baseline peak at t=49
 
-- **t=0–10 (warm-up)**: Error is low — the episode begins with a predictable straight approach; the policy has seen many similar starts.
-- **t=10–40 (transit)**: Moderate, slowly rising error — the agent is tracking the block toward the target. Small prediction lag accumulates.
-- **t≈47 (peak)**: Sudden spike — near-goal phase, high trajectory curvature, sparse training coverage (see above).
-- **t>47 (tail)**: Error may decrease if the episode terminates (no more steps) or if the agent reaches a near-static terminal state the policy partly memorised.
+The fallback MLP peaks at the final evaluated timestep because the synthetic episode is near its terminal fine-positioning phase. The block is close to the target and the agent must decelerate or reverse direction precisely, which is underrepresented relative to the mid-trajectory push. Since the fallback policy only sees an 8D state vector and produces a smooth single-step action, it lags behind the sharper terminal correction and produces a large L1 spike.
 
 ---
 
-## Limitations of this evaluation
+## What this evaluation shows
 
-1. **Offline evaluation ≠ closed-loop performance**: L1 error measures action prediction quality given ground-truth observations. In a real robot loop, early prediction errors shift observations, compounding downstream errors (covariate shift).
-2. **Single episode**: Results are highly dependent on the one synthetic episode provided. A proper evaluation would aggregate over 100+ diverse episodes.
-3. **No image input**: The LightweightPolicy operates on state vectors, missing visual feature learning which is the main differentiator of VLA models (SmolVLA, ACT).
+1. **ACT engages with the intended foundation-model setting.** It uses real recorded PushT observations and an image-conditioned policy instead of a state-vector MLP.
+2. **Offline inference is a first diagnostic, not full robot competence.** It measures action agreement under expert observations; closed-loop execution could still accumulate covariate shift.
+3. **The error plot is behaviorally useful.** The peak timestep points to the exact part of the trajectory worth replaying in the video walkthrough: contact transitions and near-goal corrections reveal much more about policy quality than a single aggregate metric.

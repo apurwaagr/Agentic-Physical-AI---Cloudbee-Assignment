@@ -7,6 +7,9 @@ __pycache__/
 
 # Virtual environment
 venv/
+.venv/
+.venv*/
+.matplotlib/
 
 # Environment variables (DO NOT COMMIT)
 .env
@@ -15,6 +18,9 @@ venv/
 # Generated outputs
 part2/configs/
 part2/plots/
+!part2/plots/
+!part2/plots/coverage.png
+!part2/plots/action_error.png
 part3/execution_log.json
 
 # OS

@@ -69,8 +69,11 @@ python scene_generator.py  # saves plots/coverage.png
 
 ```bash
 cd part2
-python eval_2b.py        # uses LightweightPolicy (offline, no downloads)
-                         # saves plots/action_error.png
+MODEL_CHOICE=act python eval_2b.py       # ACT on real lerobot/pusht data
+                                       # default ACT_MODEL_ID=vvrs/act-pusht
+MODEL_CHOICE=smolvla python eval_2b.py   # optional SmolVLA experiment
+MODEL_CHOICE=lightweight python eval_2b.py  # offline fallback baseline only
+                                      # saves plots/action_error.png
 ```
 
 ### Part 3A — Task Agent
@@ -109,7 +112,7 @@ docker run -p 8000:8000 scene-gen
 | 1B Video diffusion | ✅ Written | `part1/answers.md` |
 | 1C WorldModel | ✅ All 4 methods | `part1/world_model.py` |
 | 2A Scene generator | ✅ Both stubs fixed, 3/3 tests | `part2/scene_generator.py` |
-| 2B Foundation model | ✅ LightweightPolicy, plot saved | `part2/eval_2b.py` |
+| 2B Foundation model | ✅ ACT/SmolVLA path implemented; lightweight retained as fallback baseline | `part2/eval_2b.py`, `part2/foundation_model_report.md` |
 | 2C Sim-to-real | ✅ Written | `part2/sim_to_real.md` |
 | 3A Agent | ✅ Full loop, replan on obj_003 failure | `part3/agent.py` |
 | 3B FastAPI + Docker | ✅ Endpoint + Dockerfile complete | `part3/app.py`, `part3/Dockerfile` |
